@@ -35,13 +35,15 @@ func (r *Repository) GetRule(group domain.GroupName) (*domain.Rule, error) {
 }
 
 func (r *Repository) SetRule(group domain.GroupName, rule domain.Rule) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	r.rules[group] = rule
 	return nil
 }
 
 func (r *Repository) GetLatestNotification(group domain.GroupName, qty uint) ([]domain.Notification, error) {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	mm, ok := r.notifications[group]
 	if !ok {
 		return nil, pkgErr.NotFoundError{Cause: fmt.Errorf("group %s has not found", group)}

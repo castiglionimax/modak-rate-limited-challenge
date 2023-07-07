@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"modak-rated-limited-challenge/internal/domain"
@@ -18,6 +19,7 @@ type (
 	}
 	Service struct {
 		repository Repository
+		mutexes    sync.Map // Zero value is empty and ready for use
 	}
 )
 
@@ -25,7 +27,7 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
 }
 
-func (s Service) SendNotification(group domain.GroupName, userID, msg string) error {
+func (s *Service) SendNotification(group domain.GroupName, userID, msg string) error {
 	rule, err := s.repository.GetRule(group)
 	if err != nil {
 		return err
@@ -34,13 +36,17 @@ func (s Service) SendNotification(group domain.GroupName, userID, msg string) er
 		UserID:      userID,
 		CreatedDate: time.Now().UTC(),
 	}
+
+	unlock := s.lock(string(group))
+	defer unlock()
+
 	notifications, err := s.repository.GetLatestNotification(group, rule.Qty)
 	if err != nil {
 		if errors.As(err, &pkgErr.NotFoundError{}) {
 			if err = s.repository.AddNotification(group, notification, rule.Qty); err != nil {
 				return err
 			}
-			return s.sendNotification(notification.UserID)
+			return s.sendNotification(notification.UserID, msg)
 		}
 		return err
 	}
@@ -57,7 +63,7 @@ func (s Service) SendNotification(group domain.GroupName, userID, msg string) er
 		return err
 	}
 
-	if err = s.sendNotification(notification.UserID); err != nil {
+	if err = s.sendNotification(notification.UserID, msg); err != nil {
 		return err
 	}
 	return nil
@@ -67,11 +73,19 @@ func calculation(notificationTime time.Time, rangeTime time.Duration, qty uint) 
 	return notificationTime.Add(-rangeTime * time.Duration(qty))
 }
 
-func (s Service) SetRule(group domain.GroupName, rule domain.Rule) error {
+func (s *Service) SetRule(group domain.GroupName, rule domain.Rule) error {
 	return s.repository.SetRule(group, rule)
 }
 
-func (s Service) sendNotification(user string) error {
-	fmt.Printf("sending message to user %s, %s \n", user, time.Now().String())
+func (s *Service) sendNotification(user, msg string) error {
+	fmt.Printf("sending message to user %s - %s\n", user, msg)
 	return nil
+}
+
+func (s *Service) lock(key string) func() {
+	value, _ := s.mutexes.LoadOrStore(key, &sync.Mutex{})
+	mtx := value.(*sync.Mutex)
+	mtx.Lock()
+
+	return func() { mtx.Unlock() }
 }
