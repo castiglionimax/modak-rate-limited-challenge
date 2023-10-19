@@ -1,2 +1,2 @@
-# modak-rate-limited-challenge
+# rate-limited
 Rate-Limited Notification Service
